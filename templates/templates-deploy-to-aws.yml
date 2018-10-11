@@ -1,0 +1,14 @@
+.aws_deploy:
+  image: registry.gitlab.com/timeular/ci/awsebcli
+  before_script:
+    - >
+      printf "deploying ${ENVIRONMENT} with version: ${DOCKER_TAG_TO_DEPLOY} ..."
+
+    - cd aws
+    - echo "Deploying tag ${DOCKER_TAG_TO_DEPLOY}"
+    - sed -i -e "s/{{DOCKER_TAG_TO_DEPLOY}}/${DOCKER_TAG_TO_DEPLOY}/g" Dockerrun.aws.json
+    - eb list
+    - git add --force Dockerrun.aws.json
+  script:
+    - aws_eb_version_timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
+    - eb deploy ${ENVIRONMENT} --staged --timeout 20 --label "${SERVICE_NAME}_${ENVIRONMENT}_${DOCKER_TAG_TO_DEPLOY}_${aws_eb_version_timestamp}"

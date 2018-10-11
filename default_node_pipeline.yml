@@ -1,0 +1,95 @@
+include:
+- 'https://raw.githubusercontent.com/Timeular/gitlab-templates/master/templates/templates-docker.yml'
+- 'https://raw.githubusercontent.com/Timeular/gitlab-templates/master/templates/templates-deploy-to-k8s.yml'
+
+stages:
+  - test
+  - build_container
+  - deploy_to_testing
+  - deploy_to_production
+
+.template_develop_branch: &develop_branch develop 
+.template_release_branch: &release_branch /^release\/.*$/
+.template_hotfix_branch: &hotfix_branch /^hotfix\/.*$/
+
+.template_build_tags: &build_tags
+  tags:
+    - docker
+
+.template_restrict_docker_builds: &restrict_docker_builds
+  only:
+    - *hotfix_branch
+    - *release_branch 
+    - *develop_branch
+
+
+##
+## Test
+##
+
+test:static_analysis:
+  stage: test
+  image: registry.gitlab.com/timeular/ci/nodejs-base
+  before_script:
+    - npm install --silent
+  script:
+    - npm run check
+  <<: *build_tags
+
+##
+## Docker
+##
+build_container:build_and_publish_with_latest:
+  extends: .docker_build_and_publish_image_with_latest
+  only:
+    - *develop_branch
+  stage: build_container
+  variables:
+    CONTEXT_DIR: "."
+    DOCKERFILE_PATH: "./Dockerfile"
+    DOCKER_DRIVER: overlay
+  <<: *build_tags
+
+build_container:build_and_publish:
+  extends: .docker_build_and_publish
+  only:
+    - *hotfix_branch
+    - *release_branch 
+  stage: build_container
+  variables:
+    CONTEXT_DIR: "."
+    DOCKERFILE_PATH: "./Dockerfile"
+    DOCKER_DRIVER: overlay
+  <<: *build_tags
+
+##
+## Deploy
+##
+
+deploy:deploy_to_k8s_testing:
+  extends: .k8s_deploy
+  stage: deploy_to_testing
+  only:
+    - *develop_branch
+  variables:
+    DOCKER_IMAGE: "$CI_REGISTRY_IMAGE"
+    DOCKER_TAG_TO_DEPLOY: "$CI_COMMIT_SHA"
+    K8S_SERVER_NAME: "$K8S_TESTING_SERVER"
+    K8S_TOKEN: "$K8S_TESTING_TOKEN"
+    NAMESPACE: "$K8S_NAMESPACE"
+    DEPLOYMENT: "$K8S_DEPLOYMENT"
+  <<: *build_tags
+
+deploy:deploy_to_k8s_production:
+  extends: .k8s_deploy
+  stage: deploy_to_production
+  when: manual
+  variables:
+    DOCKER_IMAGE: "$CI_REGISTRY_IMAGE"
+    DOCKER_TAG_TO_DEPLOY: "$CI_COMMIT_SHA"
+    K8S_SERVER_NAME: "$K8S_PRODUCTION_SERVER"
+    K8S_TOKEN: "$K8S_PRODUCTION_TOKEN"
+    NAMESPACE: "$K8S_NAMESPACE"
+    DEPLOYMENT: "$K8S_DEPLOYMENT"
+  <<: *build_tags
+  <<: *restrict_docker_builds

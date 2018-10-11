@@ -1,0 +1,14 @@
+.k8s_deploy:
+  image: registry.gitlab.com/timeular/ci/docker-curl
+  script:
+    - echo "deploying image ${DOCKER_IMAGE}:${DOCKER_TAG_TO_DEPLOY} ..."
+    - >
+      patch_data=$(printf "[{ \"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/image\", \"value\": \"${DOCKER_IMAGE}:${DOCKER_TAG_TO_DEPLOY}\" }]")
+    - >
+      curl -k
+      -X PATCH
+      -d "$patch_data"
+      -H "Authorization: Bearer ${K8S_TOKEN}"
+      -H 'Accept: application/json'
+      -H 'Content-Type: application/json-patch+json'
+      "https://${K8S_SERVER_NAME}/apis/apps/v1/namespaces/${NAMESPACE}/deployments/${DEPLOYMENT}"
