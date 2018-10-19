@@ -5,6 +5,8 @@
     - >
       patch_data=$(printf "[{ \"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/image\", \"value\": \"${DOCKER_IMAGE}:${DOCKER_TAG_TO_DEPLOY}\" }]")
     - >
+      target_url=$(echo -n "https://${K8S_SERVER_NAME}/apis/apps/v1/namespaces/${NAMESPACE}/deployments/${DEPLOYMENT}")
+    - >
       status_code=$(curl -k
       -X PATCH
       -s -o /dev/null -w "%{http_code}" 
@@ -12,9 +14,9 @@
       -H "Authorization: Bearer ${K8S_TOKEN}"
       -H 'Accept: application/json'
       -H 'Content-Type: application/json-patch+json'
-      "https://${K8S_SERVER_NAME}/apis/apps/v1/namespaces/${NAMESPACE}/deployments/${DEPLOYMENT}")
+      "$target_url")
     - >
-      echo "Status Code: '$status_code'"
+      echo "Calling $target_url with Response Status Code: '$status_code'"
     - >
       if [[ $status_code -lt 200 || $status_code -gt 299 ]]; then echo "Error while trying to deploy new version: $status_code"; exit 1; fi
 
