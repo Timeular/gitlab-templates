@@ -1,0 +1,22 @@
+.k8s_deploy:
+  image: roffe/kubectl
+  script:
+    - echo "deploying image ${DOCKER_IMAGE}:${DOCKER_TAG_TO_DEPLOY} ..."
+    - echo -n "$K8S_CLIENT_CERT" | base64 -d > client.crt
+    - cert_path="$(pwd)/client.crt"
+    - >
+      kubectl
+      --server="https://${K8S_SERVER_NAME}" 
+      --token="${K8S_TOKEN}"
+      --certificate-authority="$cert_path"
+      --namespace="${NAMESPACE}" 
+      set image statefulset.v1.apps/${DEPLOYMENT} ${CONTAINER_NAME}=${DOCKER_IMAGE}:${DOCKER_TAG_TO_DEPLOY}
+    - >
+      kubectl
+      --server="https://${K8S_SERVER_NAME}" 
+      --token="${K8S_TOKEN}"
+      --certificate-authority="$cert_path"
+      --namespace="${NAMESPACE}" 
+      rollout status statefulsets/${DEPLOYMENT}
+  after_script:
+    - rm client.crt
