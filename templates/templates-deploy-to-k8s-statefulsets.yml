@@ -17,6 +17,6 @@
       --token="${K8S_TOKEN}"
       --certificate-authority="$cert_path"
       --namespace="${NAMESPACE}" 
-      rollout status statefulsets/${DEPLOYMENT}
+      rollout status statefulset/${DEPLOYMENT}
   after_script:
     - rm client.crt
