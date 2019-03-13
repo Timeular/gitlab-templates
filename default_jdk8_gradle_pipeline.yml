@@ -37,7 +37,7 @@ stages:
 
 build:build:
   stage: build
-  image: gradle:4.10-jdk8
+  image: gradle:5.2-jdk8
   variables:
     GRADLE_OPTS: "-Dorg.gradle.daemon=false"
   before_script:
