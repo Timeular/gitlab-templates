@@ -22,7 +22,7 @@ stages:
     - docker
 
 .template_restrict_docker_builds: &restrict_docker_builds
-  rules:
+  only:
     - *hotfix_branch
     - *release_branch 
     - *develop_branch
