@@ -1,0 +1,114 @@
+stages:
+    - build
+    - build_container
+    - deploy_to_testing
+    - deploy_to_production
+  
+  # will be ignored ATM: those must also be included in the root file (.gitlab-ci.yml)
+  # include:
+  #  - 'https://raw.githubusercontent.com/Timeular/gitlab-templates/master/templates/templates-docker.yml'
+  #  - 'https://raw.githubusercontent.com/Timeular/gitlab-templates/master/templates/templates-deploy-to-k8s.yml'
+  
+  #
+  # TEMPLATES
+  #
+  
+  .template_develop_branch: &develop_branch if: $CI_COMMIT_BRANCH == "develop"
+  .template_release_branch: &release_branch /^release\/.*$/
+  .template_hotfix_branch: &hotfix_branch /^hotfix\/.*$/
+  
+  .template_build_tags: &build_tags
+    tags:
+      - docker
+  
+  .template_restrict_docker_builds: &restrict_docker_builds
+    rules:
+      - *hotfix_branch
+      - *release_branch 
+      - *develop_branch
+  
+  #
+  # JOBS
+  #
+  
+  ##
+  ## BUILD
+  ##
+  
+  build:build:
+    stage: build
+    image: gradle:6.6-jdk14
+    variables:
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+    before_script:
+      - export GRADLE_USER_HOME=`pwd`/.gradle
+    cache:
+      key: "$CI_COMMIT_REF_NAME"
+      paths:
+        - build
+        - .gradle
+    script:
+      - gradle ktlintCheck
+      - gradle --build-cache build
+    <<: *build_tags
+  
+  ##
+  ## Create Container
+  ##
+  
+  build_container:build_and_publish_with_latest:
+    extends: .docker_build_and_publish_image_with_latest
+    only:
+      - *develop_branch
+    stage: build_container
+    variables:
+      CONTEXT_DIR: "."
+      DOCKERFILE_PATH: "./Dockerfile"
+      DOCKER_DRIVER: overlay
+    <<: *build_tags
+  
+  build_container:build_and_publish:
+    extends: .docker_build_and_publish
+    only:
+      - *hotfix_branch
+      - *release_branch
+    stage: build_container
+    variables:
+      CONTEXT_DIR: "."
+      DOCKERFILE_PATH: "./Dockerfile"
+      DOCKER_DRIVER: overlay
+    <<: *build_tags
+  
+  ##
+  ## Deploy
+  ##
+  
+  deploy:deploy_to_k8s_testing:
+    extends: .k8s_deploy
+    stage: deploy_to_testing
+    only:
+      - *develop_branch
+    variables:
+      DOCKER_IMAGE: "$CI_REGISTRY_IMAGE"
+      DOCKER_TAG_TO_DEPLOY: "$CI_COMMIT_SHA"
+      K8S_SERVER_NAME: "$K8S_TESTING_SERVER"
+      K8S_TOKEN: "$K8S_TESTING_TOKEN"
+      K8S_CLIENT_CERT: "$K8S_TESTING_CLIENT_CERT"
+      NAMESPACE: "$K8S_NAMESPACE"
+      DEPLOYMENT: "$K8S_DEPLOYMENT"
+    <<: *build_tags
+  
+  deploy:deploy_to_k8s_production:
+    extends: .k8s_deploy
+    stage: deploy_to_production
+    when: manual
+    variables:
+      DOCKER_IMAGE: "$CI_REGISTRY_IMAGE"
+      DOCKER_TAG_TO_DEPLOY: "$CI_COMMIT_SHA"
+      K8S_SERVER_NAME: "$K8S_PRODUCTION_SERVER"
+      K8S_TOKEN: "$K8S_PRODUCTION_TOKEN"
+      K8S_CLIENT_CERT: "$K8S_PRODUCTION_CLIENT_CERT"
+      NAMESPACE: "$K8S_NAMESPACE"
+      DEPLOYMENT: "$K8S_DEPLOYMENT"
+    <<: *build_tags
+    <<: *restrict_docker_builds
