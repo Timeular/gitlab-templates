@@ -20,3 +20,44 @@
       rollout status deployments/${DEPLOYMENT}
   after_script:
     - rm client.crt
+
+.k8s_vpn_deploy:
+  image: registry.gitlab.com/timeular/ci/vpnkubectl
+  script:
+    - echo "preparing files"
+    - k8s_cert="${pwd}/k8s_cert_authority.crt"
+    - echo "$K8S_CLIENT_CERT" > "$k8s_cert"
+    - vpn_cfg="${pwd}/vpn.cfg"
+    - echo "$VPN_CONFIG" > "$vpn_cfg"
+    - vpn_cert="${pwd}/vpn.crt"
+    - echo "$VPN_CLIENT_CERT" > "$vpn_cert"
+    - vpn_key="${pwd}/vpn.key.crt"
+    - echo "$VPN_CLIENT_KEY" > "$vpn_key"
+    - echo "opening vpn tunnel"
+    - >
+      openvpn 
+      --config "$vpn_cfg"
+      --key "$vpn_key"
+      --cert "$vpn_cert"
+      --daemon
+    - echo "deploying image ${DOCKER_IMAGE}:${DOCKER_TAG_TO_DEPLOY} ..."
+    - >
+      kubectl
+      --server="https://${K8S_SERVER_NAME}" 
+      --token="${K8S_TOKEN}"
+      --certificate-authority="$k8s_cert"
+      --namespace="${NAMESPACE}" 
+      set image deployment.v1.apps/${DEPLOYMENT} ${CONTAINER_NAME}=${DOCKER_IMAGE}:${DOCKER_TAG_TO_DEPLOY}
+    - >
+      kubectl
+      --server="https://${K8S_SERVER_NAME}" 
+      --token="${K8S_TOKEN}"
+      --certificate-authority="$k8s_cert"
+      --namespace="${NAMESPACE}" 
+      rollout status deployments/${DEPLOYMENT}
+  after_script:
+    - echo "Cleanup files"
+    - rm -f "$k8s_cert"
+    - rm -f "$vpn_key"
+    - rm -f "$vpn_cert"
+    - rm -f "$vpn_cfg"
