@@ -1,0 +1,139 @@
+stages:
+  - build
+  - build_container
+  - deploy_to_testing
+  - deploy_to_production
+
+# will be ignored ATM: those must also be included in the root file (.gitlab-ci.yml)
+# include:
+#  - 'https://raw.githubusercontent.com/Timeular/gitlab-templates/master/templates/templates-docker.yml'
+#  - 'https://raw.githubusercontent.com/Timeular/gitlab-templates/master/templates/templates-deploy-to-k8s.yml'
+
+#
+# TEMPLATES
+#
+
+.template_develop_branch: &develop_branch develop
+.template_release_branch: &release_branch /^release\/.*$/
+.template_hotfix_branch: &hotfix_branch /^hotfix\/.*$/
+
+.template_build_tags: &build_tags
+  tags:
+    - docker
+
+.template_restrict_docker_builds: &restrict_docker_builds
+  only:
+    - *hotfix_branch
+    - *release_branch 
+    - *develop_branch
+
+#
+# JOBS
+#
+
+##
+## BUILD
+##
+
+build:build:
+  services:
+    - docker:dind
+  stage: build
+  image: gradle:7.3.0-jdk17
+  variables:
+    GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_DRIVER: overlay2
+  before_script:
+    - export GRADLE_USER_HOME=`pwd`/.gradle
+  cache:
+    key: "$CI_COMMIT_REF_NAME"
+    paths:
+      - build
+      - .gradle
+  script:
+    - gradle ktlintCheck
+    - gradle --build-cache build
+  <<: *build_tags
+
+##
+## Create Container
+##
+
+build_container:build_and_publish_with_latest:
+  extends: .docker_build_and_publish_image_with_latest
+  only:
+    - *develop_branch
+  stage: build_container
+  variables:
+    CONTEXT_DIR: "."
+    DOCKERFILE_PATH: "./Dockerfile"
+    DOCKER_DRIVER: overlay
+  <<: *build_tags
+
+build_container:build_and_publish:
+  extends: .docker_build_and_publish
+  only:
+    - *hotfix_branch
+    - *release_branch
+  stage: build_container
+  variables:
+    CONTEXT_DIR: "."
+    DOCKERFILE_PATH: "./Dockerfile"
+    DOCKER_DRIVER: overlay
+  <<: *build_tags
+
+##
+## Deploy
+##
+
+deploy:deploy_to_k8s_testing:
+  extends: .k8s_vpn_deploy
+  stage: deploy_to_testing
+  only:
+    - *develop_branch
+  variables:
+    DOCKER_IMAGE: "$CI_REGISTRY_IMAGE"
+    DOCKER_TAG_TO_DEPLOY: "$CI_COMMIT_SHA"
+    VPN_CONFIG: "$TESTING_VPN_CFG"
+    VPN_CLIENT_CERT: "$TESTING_VPN_CLIENT_CERT_CHAIN"
+    VPN_CLIENT_KEY: "$TESTING_VPN_CLIENT_CERT_KEY"
+    K8S_SERVER_NAME: "$TESTING_K8S_SERVER"
+    K8S_TOKEN: "$TESTING_K8S_DEPLOY_TOKEN"
+    K8S_CLIENT_CERT: "$TESTING_K8S_CLIENT_CERT"
+    NAMESPACE: "$K8S_NAMESPACE"
+    DEPLOYMENT: "$K8S_DEPLOYMENT"
+  <<: *build_tags
+
+deploy:deploy_to_k8s_production_old:
+  extends: .k8s_deploy
+  stage: deploy_to_production
+  when: manual
+  variables:
+    DOCKER_IMAGE: "$CI_REGISTRY_IMAGE"
+    DOCKER_TAG_TO_DEPLOY: "$CI_COMMIT_SHA"
+    K8S_SERVER_NAME: "$K8S_PRODUCTION_SERVER"
+    K8S_TOKEN: "$K8S_PRODUCTION_TOKEN"
+    K8S_CLIENT_CERT: "$K8S_PRODUCTION_CLIENT_CERT"
+    NAMESPACE: "$K8S_NAMESPACE"
+    DEPLOYMENT: "$K8S_DEPLOYMENT"
+  <<: *build_tags
+  <<: *restrict_docker_builds
+
+deploy:deploy_to_k8s_production:
+  extends: .k8s_vpn_deploy
+  stage: deploy_to_production
+  when: manual
+  variables:
+    DOCKER_IMAGE: "$CI_REGISTRY_IMAGE"
+    DOCKER_TAG_TO_DEPLOY: "$CI_COMMIT_SHA"
+    VPN_CONFIG: "$PRODUCTION_VPN_CFG"
+    VPN_CLIENT_CERT: "$PRODUCTION_VPN_CLIENT_CERT_CHAIN"
+    VPN_CLIENT_KEY: "$PRODUCTION_VPN_CLIENT_CERT_KEY"
+    K8S_SERVER_NAME: "$PRODUCTION_K8S_SERVER"
+    K8S_TOKEN: "$PRODUCTION_K8S_DEPLOY_TOKEN"
+    K8S_CLIENT_CERT: "$PRODUCTION_K8S_CLIENT_CERT"
+    NAMESPACE: "$K8S_NAMESPACE"
+    DEPLOYMENT: "$K8S_DEPLOYMENT"
+  <<: *build_tags
+  <<: *restrict_docker_builds
