@@ -41,8 +41,8 @@ build:staticcheck_and_test:
   before_script:
   script:
     - make style-check
-    - cargo build --profile dev
-    - make test
+    - make
+    - cargo test -- --color=always --test-threads=1 --nocapture
   <<: *build_tags
 
 ##
