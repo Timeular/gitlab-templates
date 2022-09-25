@@ -1,0 +1,186 @@
+include:
+  - 'https://raw.githubusercontent.com/Timeular/gitlab-templates/master/templates/templates-docker.yml'
+  - 'https://raw.githubusercontent.com/Timeular/gitlab-templates/master/templates/templates-deploy-to-k8s.yml'
+
+stages:
+  - .pre
+  - build
+  - build_container
+  - deploy_to_testing
+  - deploy_to_production
+
+##
+## Templates
+##
+
+.docker_build_and_publish:
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - >
+      printf "DOCKERFILE_PATH     : $DOCKERFILE_PATH \nCONTEXT_DIR         : $CONTEXT_DIR \n"
+
+    - docker info
+    - docker login -u gitlab-ci-token -p ${CI_BUILD_TOKEN} ${CI_REGISTRY}
+    - docker pull "${DOCKER_CACHE_IMAGE_NAME}:latest" || yes
+    - docker build --pull
+      --cache-from "${DOCKER_CACHE_IMAGE_NAME}:latest"
+      --tag "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}"
+      -f ${DOCKERFILE_PATH} ./${CONTEXT_DIR}
+    - docker push "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}"
+
+.docker_build_and_publish_image_with_latest:
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker login -u gitlab-ci-token -p ${CI_BUILD_TOKEN} ${CI_REGISTRY}
+    - >
+      printf "Building release-builder image"
+    - docker pull "${DOCKER_CACHE_IMAGE_NAME}:latest" || yes
+    - docker build --pull
+      --target builder
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --cache-from "${DOCKER_CACHE_IMAGE_NAME}:latest"
+      --tag ${DOCKER_CACHE_IMAGE_NAME}:latest
+      -f ${DOCKERFILE_PATH} ./${CONTEXT_DIR}
+    - docker push ${DOCKER_CACHE_IMAGE_NAME}:latest
+    - >
+      printf "Building release image\nDOCKERFILE_PATH     : $DOCKERFILE_PATH \nCONTEXT_DIR         : $CONTEXT_DIR \n"
+    - docker build --pull
+      --cache-from "${DOCKER_CACHE_IMAGE_NAME}:latest"
+      --tag "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}"
+      --tag ${CI_REGISTRY_IMAGE}:latest
+      -f ${DOCKERFILE_PATH} ./${CONTEXT_DIR}
+    - docker push ${CI_REGISTRY_IMAGE}:latest
+    - docker push "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}"
+
+.docker_build_test_dependency_image:
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_IMAGE: "${CI_REGISTRY_IMAGE}/test-builder"
+    CONTEXT_DIR: "."
+    DOCKERFILE_PATH: "./Dockerfile.test"
+  script:
+    - docker login -u gitlab-ci-token -p ${CI_BUILD_TOKEN} ${CI_REGISTRY}
+    - docker pull "${DOCKER_IMAGE}:latest" || yes
+    - docker build --pull
+      --target builder
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --cache-from "${DOCKER_IMAGE}:latest"
+      --tag ${DOCKER_IMAGE}:latest
+      -f ${DOCKERFILE_PATH} ./${CONTEXT_DIR}
+    - docker push ${DOCKER_IMAGE}:latest
+
+.template_develop_branch: &develop_branch develop
+.template_release_branch: &release_branch /^release\/.*$/
+.template_hotfix_branch: &hotfix_branch /^hotfix\/.*$/
+
+.template_build_tags: &build_tags
+  tags:
+    - docker
+
+.template_restrict_docker_builds: &restrict_docker_builds
+  only:
+    - *hotfix_branch
+    - *release_branch 
+    - *develop_branch
+
+#
+# JOBS
+#
+
+##
+## Prepare
+##
+
+pre:prepare_dependencies:
+  extends: .docker_build_test_dependency_image
+  stage: .pre
+
+##
+## BUILD
+##
+
+build:staticcheck_and_test:
+  stage: build
+  image: ${CI_REGISTRY_IMAGE}/test-builder
+  script:
+    - cp -r * /home/rust/src/app
+    - cd /home/rust/src/app
+    - make style-check
+    - make lint
+    - cargo test -- --color=always --test-threads=1 --nocapture
+    - make build
+  <<: *build_tags
+
+##
+## Create Container
+##
+
+build_container:build_and_publish_with_latest:
+  extends: .docker_build_and_publish_image_with_latest
+  only:
+    - *develop_branch
+  stage: build_container
+  variables:
+    CONTEXT_DIR: "."
+    DOCKERFILE_PATH: "./Dockerfile"
+    DOCKER_DRIVER: overlay
+    DOCKER_CACHE_IMAGE_NAME_NAME: "${CI_REGISTRY_IMAGE}/release-builder"
+  <<: *build_tags
+
+build_container:build_and_publish:
+  extends: .docker_build_and_publish
+  only:
+    - *hotfix_branch
+    - *release_branch
+  stage: build_container
+  variables:
+    CONTEXT_DIR: "."
+    DOCKERFILE_PATH: "./Dockerfile"
+    DOCKER_DRIVER: overlay
+    DOCKER_CACHE_IMAGE_NAME_NAME: "${CI_REGISTRY_IMAGE}/release-builder"
+
+##
+## Deploy
+##
+
+deploy:deploy_to_k8s_testing:
+  extends: .k8s_vpn_deploy
+  stage: deploy_to_testing
+  only:
+    - *develop_branch
+  variables:
+    DOCKER_IMAGE: "$CI_REGISTRY_IMAGE"
+    DOCKER_TAG_TO_DEPLOY: "$CI_COMMIT_SHA"
+    VPN_CONFIG: "$TESTING_VPN_CFG"
+    VPN_CLIENT_CERT: "$TESTING_VPN_CLIENT_CERT_CHAIN"
+    VPN_CLIENT_KEY: "$TESTING_VPN_CLIENT_CERT_KEY"
+    K8S_SERVER_NAME: "$TESTING_K8S_SERVER"
+    K8S_TOKEN: "$TESTING_K8S_DEPLOY_TOKEN"
+    K8S_CLIENT_CERT: "$TESTING_K8S_CLIENT_CERT"
+    NAMESPACE: "$K8S_NAMESPACE"
+    DEPLOYMENT: "$K8S_DEPLOYMENT"
+  <<: *build_tags
+
+deploy:deploy_to_k8s_production:
+  extends: .k8s_vpn_deploy
+  stage: deploy_to_production
+  when: manual
+  variables:
+    DOCKER_IMAGE: "$CI_REGISTRY_IMAGE"
+    DOCKER_TAG_TO_DEPLOY: "$CI_COMMIT_SHA"
+    VPN_CONFIG: "$PRODUCTION_VPN_CFG"
+    VPN_CLIENT_CERT: "$PRODUCTION_VPN_CLIENT_CERT_CHAIN"
+    VPN_CLIENT_KEY: "$PRODUCTION_VPN_CLIENT_CERT_KEY"
+    K8S_SERVER_NAME: "$PRODUCTION_K8S_SERVER"
+    K8S_TOKEN: "$PRODUCTION_K8S_DEPLOY_TOKEN"
+    K8S_CLIENT_CERT: "$PRODUCTION_K8S_CLIENT_CERT"
+    NAMESPACE: "$K8S_NAMESPACE"
+    DEPLOYMENT: "$K8S_DEPLOYMENT"
+  <<: *build_tags
+  <<: *restrict_docker_builds
