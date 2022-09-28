@@ -109,7 +109,7 @@ build:staticcheck_and_test:
   stage: build
   image: ${CI_REGISTRY_IMAGE}/test-builder
   script:
-    - cp -r * /home/rust/src/app
+    - cp -r $(pwd)/. /home/rust/src/app
     - cd /home/rust/src/app
     - make style-check
     - make lint
