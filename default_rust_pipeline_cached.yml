@@ -22,7 +22,7 @@ stages:
       printf "DOCKERFILE_PATH     : $DOCKERFILE_PATH \nCONTEXT_DIR         : $CONTEXT_DIR \n"
 
     - docker info
-    - docker login -u gitlab-ci-token -p ${CI_BUILD_TOKEN} ${CI_REGISTRY}
+    - docker login -u gitlab-ci-token -p ${CI_JOB_TOKEN} ${CI_REGISTRY}
     - docker pull "${DOCKER_CACHE_IMAGE_NAME}:latest" || yes
     - docker build --pull
       --cache-from "${DOCKER_CACHE_IMAGE_NAME}:latest"
@@ -35,7 +35,7 @@ stages:
   services:
     - docker:dind
   script:
-    - docker login -u gitlab-ci-token -p ${CI_BUILD_TOKEN} ${CI_REGISTRY}
+    - docker login -u gitlab-ci-token -p ${CI_JOB_TOKEN} ${CI_REGISTRY}
     - >
       printf "Building release-builder image"
     - docker pull "${DOCKER_CACHE_IMAGE_NAME}:latest" || yes
@@ -65,7 +65,7 @@ stages:
     CONTEXT_DIR: "."
     DOCKERFILE_PATH: "./Dockerfile.test"
   script:
-    - docker login -u gitlab-ci-token -p ${CI_BUILD_TOKEN} ${CI_REGISTRY}
+    - docker login -u gitlab-ci-token -p ${CI_JOB_TOKEN} ${CI_REGISTRY}
     - docker pull "${DOCKER_IMAGE}:latest" || yes
     - docker build --pull
       --target builder
