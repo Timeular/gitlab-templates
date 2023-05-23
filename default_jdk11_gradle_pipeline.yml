@@ -63,7 +63,7 @@ build_container:build_and_publish_with_latest:
   variables:
     CONTEXT_DIR: "."
     DOCKERFILE_PATH: "./Dockerfile"
-    DOCKER_DRIVER: overlay
+    DOCKER_DRIVER: overlay2
   <<: *build_tags
 
 build_container:build_and_publish:
@@ -75,7 +75,7 @@ build_container:build_and_publish:
   variables:
     CONTEXT_DIR: "."
     DOCKERFILE_PATH: "./Dockerfile"
-    DOCKER_DRIVER: overlay
+    DOCKER_DRIVER: overlay2
   <<: *build_tags
 
 ##
