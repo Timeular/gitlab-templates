@@ -39,7 +39,7 @@ build:build:
   services:
     - docker:dind
   stage: build
-  image: gradle:8.4-jdk21
+  image: gradle:8.6-jdk21
   variables:
     GRADLE_OPTS: "-Dorg.gradle.daemon=false"
     DOCKER_HOST: "tcp://docker:2375"
