@@ -19,7 +19,7 @@ stages:
 
 .template_build_tags: &build_tags
   tags:
-    - docker
+    - saas-linux-small-amd64
 
 .template_restrict_docker_builds: &restrict_docker_builds
   only:
